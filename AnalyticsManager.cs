@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
+using Newtonsoft.Json;
 
 public class AnalyticsManager : MonoBehaviour
 {
@@ -19,6 +20,7 @@ public class AnalyticsManager : MonoBehaviour
         public string session_id;
         public string platform;
         public string app_version;
+        public string custom;
         public string timestamp;
     }
 
@@ -51,6 +53,7 @@ public class AnalyticsManager : MonoBehaviour
     private string _identity;
     private string _sessionId;
     private string _appVersion;
+    private string _customData = "";
 
     private bool _isServerChecked;
     private bool _serverAlive;
@@ -112,19 +115,24 @@ public class AnalyticsManager : MonoBehaviour
 
     private Tracking CreateTracking(string name, string value)
     {
+        var trackingData = new TrackingData
+        {
+            name = name,
+            value = value,
+            identity = _identity,
+            session_id = _sessionId,
+            platform = _platform,
+            app_version = _appVersion,
+            timestamp = DateTime.UtcNow.ToString("o") // ISO 8601 format
+        };
+
+        if (!string.IsNullOrEmpty(_customData))
+            trackingData.custom = _customData;
+
         return new Tracking
         {
             tenant_id = _tenantId,
-            tracking = new TrackingData
-            {
-                name = name,
-                value = value,
-                identity = _identity,
-                session_id = _sessionId,
-                platform = _platform,
-                app_version = _appVersion,
-                timestamp = DateTime.UtcNow.ToString("o") // ISO 8601 format
-            }
+            tracking = trackingData
         };
     }
 
@@ -172,7 +180,7 @@ public class AnalyticsManager : MonoBehaviour
     // Sending
     private IEnumerator PostSingle(Tracking tracking)
     {
-        string json = JsonUtility.ToJson(tracking);
+        string json = JsonConvert.SerializeObject(tracking);
         using UnityWebRequest request = CreateRequest(_url + "/track", json);
         yield return request.SendWebRequest();
     }
@@ -191,7 +199,7 @@ public class AnalyticsManager : MonoBehaviour
         string json;
         lock (_lock)
         {
-            json = JsonUtility.ToJson(_manualBatchedTracks);
+            json = JsonConvert.SerializeObject(_manualBatchedTracks);
             _manualBatchedTracks.tracks.Clear();
         }
 
@@ -211,7 +219,7 @@ public class AnalyticsManager : MonoBehaviour
         }
 
         BatchedTracks batch = new BatchedTracks { tracks = toSend };
-        string json = JsonUtility.ToJson(batch);
+        string json = JsonConvert.SerializeObject(batch);
 
         using UnityWebRequest request = CreateRequest(_url + "/batch", json);
         yield return request.SendWebRequest();
@@ -228,6 +236,23 @@ public class AnalyticsManager : MonoBehaviour
         }
     }
 
+    // Custom Data
+    public void SetCustomData(Dictionary<string, object> customData)
+    {
+        if (customData == null || customData.Count == 0)
+        {
+            _customData = "";
+            return;
+        }
+
+        _customData = JsonConvert.SerializeObject(customData);
+    }
+
+    public void ClearCustomData()
+    {
+        _customData = "";
+    }
+
     // Public methods
     public void TrackEvent(string eventName, Dictionary<string, object> props)
     {
@@ -235,7 +260,7 @@ public class AnalyticsManager : MonoBehaviour
         if (!_serverAlive && _isServerChecked && !_autoBatching)
             return;
 
-        string serializedProps = JsonUtility.ToJson(props); 
+        string serializedProps = JsonConvert.SerializeObject(props); 
         ProcessTrackEvent(eventName, serializedProps);
 #endif
     }
@@ -246,7 +271,7 @@ public class AnalyticsManager : MonoBehaviour
         if (!_serverAlive && _isServerChecked && !_autoBatching)
             return;
 
-        string wrapped = string.IsNullOrEmpty(props) ? "" : JsonUtility.ToJson(new ValueWrapper { data = props });
+        string wrapped = string.IsNullOrEmpty(props) ? "" : JsonConvert.SerializeObject(new ValueWrapper { data = props });
         ProcessTrackEvent(eventName, wrapped);
 #endif
     }
@@ -267,7 +292,7 @@ public class AnalyticsManager : MonoBehaviour
     {
 #if ENABLE_ANALYTICS
         if (!_serverAlive) return;
-        string serializedProps = JsonUtility.ToJson(props);
+        string serializedProps = JsonConvert.SerializeObject(props);
         lock (_lock) { _manualBatchedTracks.tracks.Add(CreateTracking(eventName, serializedProps)); }
 #endif
     }
