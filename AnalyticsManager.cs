@@ -40,6 +40,7 @@ public class AnalyticsManager : MonoBehaviour
     public static AnalyticsManager Instance { get; private set; }
 
     [SerializeField] private bool _initializeOnAwake = true;
+    [SerializeField] private bool _enableAnalytics = true;
 
     [SerializeField] private string _tenantId;
     [SerializeField] private string _url = "https://in.vortexanalytics.io";
@@ -98,9 +99,10 @@ public class AnalyticsManager : MonoBehaviour
         _initialized = true;
         InitSession();
 
-#if ENABLE_ANALYTICS
-        StartCoroutine(CheckServerAvailability());
-#endif
+        if (_enableAnalytics)
+        {
+            StartCoroutine(CheckServerAvailability());
+        }
 
         TrackEvent("app_started");
     }
@@ -111,6 +113,31 @@ public class AnalyticsManager : MonoBehaviour
         PlayerPrefs.SetString("device_identity", _identity);
         _sessionId = Guid.NewGuid().ToString();
         _appVersion = Application.version;
+    }
+
+    public void SetAnalyticsEnabled(bool enabled)
+    {
+        _enableAnalytics = enabled;
+
+        if (!enabled)
+        {
+            if (_autoFlushRoutine != null)
+            {
+                StopCoroutine(_autoFlushRoutine);
+                _autoFlushRoutine = null;
+            }
+        }
+        else
+        {
+            if (!_isServerChecked)
+            {
+                StartCoroutine(CheckServerAvailability());
+            }
+            else if (_serverAlive && _autoBatching && _autoFlushRoutine == null)
+            {
+                _autoFlushRoutine = StartCoroutine(AutoFlushRoutine());
+            }
+        }
     }
 
     private Tracking CreateTracking(string name, string value)
@@ -187,9 +214,8 @@ public class AnalyticsManager : MonoBehaviour
 
     public void FlushManualBatch() 
     {
-#if ENABLE_ANALYTICS
+        if (!_enableAnalytics) return;
         StartCoroutine(PostBatchRoutine());
-#endif
     }
 
     private IEnumerator PostBatchRoutine()
@@ -256,24 +282,24 @@ public class AnalyticsManager : MonoBehaviour
     // Public methods
     public void TrackEvent(string eventName, Dictionary<string, object> props)
     {
-#if ENABLE_ANALYTICS
+        if (!_enableAnalytics) return;
+
         if (!_serverAlive && _isServerChecked && !_autoBatching)
             return;
 
         string serializedProps = JsonConvert.SerializeObject(props); 
         ProcessTrackEvent(eventName, serializedProps);
-#endif
     }
 
     public void TrackEvent(string eventName, string props = "")
     {
-#if ENABLE_ANALYTICS
+        if (!_enableAnalytics) return;
+
         if (!_serverAlive && _isServerChecked && !_autoBatching)
             return;
 
         string wrapped = string.IsNullOrEmpty(props) ? "" : JsonConvert.SerializeObject(new ValueWrapper { data = props });
         ProcessTrackEvent(eventName, wrapped);
-#endif
     }
 
     private void ProcessTrackEvent(string eventName, string value)
@@ -290,19 +316,19 @@ public class AnalyticsManager : MonoBehaviour
 
     public void BatchedTrackEvent(string eventName, Dictionary<string, object> props)
     {
-#if ENABLE_ANALYTICS
+        if (!_enableAnalytics) return;
         if (!_serverAlive) return;
+
         string serializedProps = JsonConvert.SerializeObject(props);
         lock (_lock) { _manualBatchedTracks.tracks.Add(CreateTracking(eventName, serializedProps)); }
-#endif
     }
 
     public void BatchedTrackEvent(string eventName, string props = "")
     {
-#if ENABLE_ANALYTICS
+        if (!_enableAnalytics) return;
         if (!_serverAlive) return;
+
         lock (_lock) { _manualBatchedTracks.tracks.Add(CreateTracking(eventName, props)); }
-#endif
     }
 
     // Lifecycle
@@ -322,6 +348,8 @@ public class AnalyticsManager : MonoBehaviour
 
     private void FlushAllBeforeClosing()
     {
+        if (!_enableAnalytics) return;
+
         lock (_lock)
         {
             if (_internalQueue.Count > 0)

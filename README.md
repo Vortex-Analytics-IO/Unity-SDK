@@ -48,9 +48,11 @@ If you have [NuGetForUnity](https://github.com/GlassToeStudio/NuGetForUnity) ins
 
 Attach the `AnalyticsManager` component to a GameObject and configure:
 
-- **Tenant ID**
-- **Server URL**
-- **Platform**
+- **Initialize On Awake**: If true, `Initialize()` is called automatically on startup.
+- **Enable Analytics**: Master switch. If false, the system initializes but **does not send any data** (all tracking calls are ignored).
+- **Tenant ID**: Your unique project identifier.
+- **Url**: The endpoint URL (default: `https://in.vortexanalytics.io`).
+- **Platform**: The platform string (e.g., "STEAM", "IOS").
 
 When `Initialize On Start` is enabled, the system initializes automatically during `Awake()`.
 
@@ -77,6 +79,25 @@ On initialization, the system:
 4. Enables or disables analytics based on server availability
 
 If the server is unreachable, events are safely queued until connectivity is restored.
+
+## Runtime Control
+You can enable or disable analytics at runtime (e.g., for GDPR consent or user opt-out options).
+
+### Toggling Analytics
+
+```csharp
+// Disable analytics (stops all tracking and background routines)
+AnalyticsManager.Instance.SetAnalyticsEnabled(false);
+
+// Enable analytics (restarts health checks and flushing routines)
+AnalyticsManager.Instance.SetAnalyticsEnabled(true);
+```
+
+### Behavior when disabled:
+
+- All TrackEvent and BatchedTrackEvent calls are ignored immediately.
+- Background flush routines are stopped to save resources.
+- Server health checks are paused.
 
 ## Tracking Events
 
