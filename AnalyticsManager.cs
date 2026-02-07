@@ -60,6 +60,9 @@ public class AnalyticsManager : MonoBehaviour
     private bool _serverAlive;
     private bool _initialized;
 
+    private bool _isQuitting;
+    private bool _flushCompleted;
+
     private readonly List<Tracking> _internalQueue = new List<Tracking>();
     private BatchedTracks _manualBatchedTracks = new BatchedTracks();
 
@@ -77,8 +80,15 @@ public class AnalyticsManager : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
+        Application.wantsToQuit += OnWantsToQuit;
+
         if (_initializeOnAwake)
             Initialize();
+    }
+
+    private void OnDestroy()
+    {
+        Application.wantsToQuit -= OnWantsToQuit;
     }
 
     public void Init(string tenantId, string url, string platform)
@@ -150,7 +160,7 @@ public class AnalyticsManager : MonoBehaviour
             session_id = _sessionId,
             platform = _platform,
             app_version = _appVersion,
-            timestamp = DateTime.UtcNow.ToString("o") // ISO 8601 format
+            timestamp = DateTime.UtcNow.ToString("o")
         };
 
         if (!string.IsNullOrEmpty(_customData))
@@ -220,7 +230,7 @@ public class AnalyticsManager : MonoBehaviour
 
     private IEnumerator PostBatchRoutine()
     {
-        if (!_serverAlive || _manualBatchedTracks.tracks.Count == 0) yield break;
+        if (_manualBatchedTracks.tracks.Count == 0) yield break;
 
         string json;
         lock (_lock)
@@ -331,16 +341,53 @@ public class AnalyticsManager : MonoBehaviour
         lock (_lock) { _manualBatchedTracks.tracks.Add(CreateTracking(eventName, props)); }
     }
 
-    // Lifecycle
+    private bool OnWantsToQuit()
+    {
+        if (_flushCompleted)
+            return true;
+
+        if (!_isQuitting)
+        {
+            _isQuitting = true;
+            StartCoroutine(QuitFlushRoutine());
+        }
+
+        return false;
+    }
+
+    private IEnumerator QuitFlushRoutine()
+    {
+        FlushAllBeforeClosing();
+
+        float timeout = 2f;
+        float timer = 0f;
+
+        while (timer < timeout)
+        {
+            timer += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        _flushCompleted = true;
+        Application.Quit();
+    }
+
     private void OnApplicationQuit()
     {
         FlushAllBeforeClosing();
     }
 
-    // Useful for mobile when the app is pushed to the background
     private void OnApplicationFocus(bool hasFocus)
     {
         if (!hasFocus)
+        {
+            FlushAllBeforeClosing();
+        }
+    }
+
+    private void OnApplicationPause(bool pauseStatus)
+    {
+        if (pauseStatus)
         {
             FlushAllBeforeClosing();
         }
@@ -352,6 +399,8 @@ public class AnalyticsManager : MonoBehaviour
 
         lock (_lock)
         {
+            _manualBatchedTracks.tracks.Add(CreateTracking("app_exit", "")); 
+
             if (_internalQueue.Count > 0)
             {
                 _manualBatchedTracks.tracks.AddRange(_internalQueue);
