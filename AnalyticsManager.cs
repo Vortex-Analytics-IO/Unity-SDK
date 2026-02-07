@@ -41,6 +41,7 @@ public class AnalyticsManager : MonoBehaviour
 
     [SerializeField] private bool _initializeOnAwake = true;
     [SerializeField] private bool _enableAnalytics = true;
+    [SerializeField] private bool _verbose = false;
 
     [SerializeField] private string _tenantId;
     [SerializeField] private string _url = "https://in.vortexanalytics.io";
@@ -123,6 +124,7 @@ public class AnalyticsManager : MonoBehaviour
         PlayerPrefs.SetString("device_identity", _identity);
         _sessionId = Guid.NewGuid().ToString();
         _appVersion = Application.version;
+        VortexLog("Session initialized - Identity: {0}, SessionId: {1}, AppVersion: {2}", _identity, _sessionId, _appVersion);
     }
 
     public void SetAnalyticsEnabled(bool enabled)
@@ -177,6 +179,7 @@ public class AnalyticsManager : MonoBehaviour
     private IEnumerator CheckServerAvailability()
     {
         if (string.IsNullOrEmpty(_url)) yield break;
+        VortexLog("Checking server availability at {0}/health", _url);
 
         using UnityWebRequest request = UnityWebRequest.Get(_url + "/health");
         request.timeout = 5;
@@ -185,6 +188,8 @@ public class AnalyticsManager : MonoBehaviour
 
         _serverAlive = request.result == UnityWebRequest.Result.Success;
         _isServerChecked = true;
+
+        VortexLog("Server check completed - Alive: {0}", _serverAlive ? "true" : "false");
 
         if (_serverAlive)
         {
@@ -214,12 +219,30 @@ public class AnalyticsManager : MonoBehaviour
         return request;
     }
 
+    private void VortexLog(string format, params object[] args)
+    {
+        if (!_verbose) return;
+        try { Debug.LogFormat("[Vortex] " + format, args); }
+        catch { Debug.Log("[Vortex] " + string.Format(format, args)); }
+    }
+
     // Sending
     private IEnumerator PostSingle(Tracking tracking)
     {
         string json = JsonConvert.SerializeObject(tracking);
         using UnityWebRequest request = CreateRequest(_url + "/track", json);
         yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            VortexLog("Request failed: {0}", request.url);
+            VortexLog("Response code: {0}", request.responseCode);
+            VortexLog("Response body: {0}", request.downloadHandler != null ? request.downloadHandler.text : "(no body)");
+        }
+        else
+        {
+            VortexLog("Request succeeded: {0}", request.url);
+        }
     }
 
     public void FlushManualBatch() 
@@ -239,8 +262,21 @@ public class AnalyticsManager : MonoBehaviour
             _manualBatchedTracks.tracks.Clear();
         }
 
+        VortexLog("Posting manual batch with {0} events", JsonConvert.DeserializeObject<BatchedTracks>(json)?.tracks?.Count ?? 0);
+
         using UnityWebRequest request = CreateRequest(_url + "/batch", json);
         yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            VortexLog("Batch request failed: {0}", request.url);
+            VortexLog("Response code: {0}", request.responseCode);
+            VortexLog("Response body: {0}", request.downloadHandler != null ? request.downloadHandler.text : "(no body)");
+        }
+        else
+        {
+            VortexLog("Batch request succeeded: {0}", request.url);
+        }
     }
 
     private IEnumerator FlushInternalQueue()
@@ -257,8 +293,21 @@ public class AnalyticsManager : MonoBehaviour
         BatchedTracks batch = new BatchedTracks { tracks = toSend };
         string json = JsonConvert.SerializeObject(batch);
 
+        VortexLog("Flushing internal queue with {0} events", batch.tracks.Count);
+
         using UnityWebRequest request = CreateRequest(_url + "/batch", json);
         yield return request.SendWebRequest();
+
+        if (request.result != UnityWebRequest.Result.Success)
+        {
+            VortexLog("Flush request failed: {0}", request.url);
+            VortexLog("Response code: {0}", request.responseCode);
+            VortexLog("Response body: {0}", request.downloadHandler != null ? request.downloadHandler.text : "(no body)");
+        }
+        else
+        {
+            VortexLog("Flush request succeeded: {0}", request.url);
+        }
     }
 
     private IEnumerator AutoFlushRoutine()
